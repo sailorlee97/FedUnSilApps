@@ -30,7 +30,7 @@ class learn(basetrain):
     def __init__(self, total_cls, num_list):
         super().__init__(num_list)
         self.total_cls = total_cls
-        self.seen_cls = 0
+        self.seen_cls = total_cls
         #self.dataset = flowfeatures()
         self.model = ResNet(classes=self.total_cls).cuda()
         # print(self.model)
@@ -47,7 +47,7 @@ class learn(basetrain):
         #print("Solver total trainable parameters : ", total_params)
 
     def train(self,batch_size, epoches, lr, dataset,test, inc, status):
-        total_cls = self.total_cls
+        #total_cls = self.total_cls
         optimizer = optim.SGD(self.model.parameters(), lr=lr, momentum=0.9, weight_decay=2e-4)
         scheduler = StepLR(optimizer, step_size=70, gamma=0.1)
         criterion = nn.CrossEntropyLoss()
@@ -68,14 +68,13 @@ class learn(basetrain):
                                 batch_size=batch_size, shuffle=True, drop_last=True)
         #exemplar.update(self.sample[0], (train_x, train_y), (val_x, val_y))
 
-        self.seen_cls = 10
-        print("seen cls number : ", self.seen_cls)
+
         # val_xs, val_ys = exemplar.get_exemplar_val()
         # val_bias_data = DataLoader(BatchflowData(val_xs, val_ys), batch_size=16, shuffle=True, drop_last=False)
         test_acc = []
 
         for epoch in range(epoches):
-            print("---" * 50)
+            print("---" * 10)
             print("Epoch", epoch)
 
             cur_lr = self.get_lr(optimizer)
@@ -160,7 +159,6 @@ class learn(basetrain):
         acc = correct / (wrong + correct)
         print("Test Acc: {}".format(acc * 100))
         self.model.train()
-        print("---------------------------------------------")
         return acc
 
 if __name__ == '__main__':

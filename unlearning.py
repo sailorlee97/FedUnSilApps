@@ -1,3 +1,4 @@
+import os
 from copy import deepcopy
 
 import numpy as np
@@ -20,11 +21,11 @@ class unlearn(basetrain):
         super().__init__(num_list)
         self.previous_model = None
         self.total_cls = total_cls
-        self.seen_cls = 0
+        self.seen_cls = total_cls
         # self.dataset = flowfeatures()
         self.model = ResNet(classes=self.total_cls).cuda()
-        total_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
-        print("Solver total trainable parameters : ", total_params)
+        #total_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
+        #print("Solver total trainable parameters : ", total_params)
 
     def stage(self, train_data, criterion, optimizer, inc_i, status):
         print("Training ... ")
@@ -43,9 +44,9 @@ class unlearn(basetrain):
             losses_fine_tune.append(loss.item())
         print("stage fine_tune loss :", np.mean(losses_fine_tune))
 
-    def train(self, batch_size, epoches, lr, dataset, inc, status):
+    def train(self, batch_size, epoches, lr, dataset, test, inc, status):
 
-        total_cls = self.total_cls
+        #total_cls = self.total_cls
         optimizer = optim.SGD(self.model.parameters(), lr=lr, momentum=0.9, weight_decay=2e-4)
         scheduler = StepLR(optimizer, step_size=70, gamma=0.1)
         criterion = nn.CrossEntropyLoss()
@@ -55,8 +56,14 @@ class unlearn(basetrain):
         # print('train:', len(train), 'val:', len(val), 'test:', len(test))
 
         train_x, train_y = zip(*dataset)
+        train_ys_ft_new, label_mapping_fine_tune = self.automate_label_mapping(train_y)
+        train_loader = DataLoader(BatchflowData(train_x, train_ys_ft_new),
+                                  batch_size=batch_size, shuffle=True, drop_last=True)
         # val_x, val_y = zip(*val)
-        # test_x, test_y = zip(*test)
+        test_x, test_y = zip(*test)
+        test_ys_ft_new, label_mapping_fine_tune = self.automate_label_mapping(test_y)
+        test_data = DataLoader(BatchflowData(test_x, test_ys_ft_new),
+                               batch_size=batch_size, shuffle=True, drop_last=True)
 
         state_dict = torch.load(f'./saved_models/client{inc}/model+{inc}.pth')
         self.model.load_state_dict(state_dict)
@@ -64,9 +71,6 @@ class unlearn(basetrain):
         # = [y for y in test_y if y not in status[1][2]]
         # train_xs_ft = [x for x, y in zip(train_x, train_y) if y not in status[1][2]]
         # train_ys_ft = [y for y in train_y if y not in status[1][2]]
-        train_ys_ft_new, label_mapping_fine_tune = self.automate_label_mapping(train_y)
-        train_loader = DataLoader(BatchflowData(train_x, train_ys_ft_new),
-                                  batch_size=batch_size, shuffle=True, drop_last=True)
         # test_data = DataLoader(BatchflowData(test_x, test_y),
         # batch_size=batch_size, shuffle=False)
 
@@ -89,6 +93,11 @@ class unlearn(basetrain):
             param.requires_grad = True
         self.previous_model = deepcopy(self.model)
 
+        if not os.path.exists(f'./saved_models/client{inc}'):
+            os.makedirs(f'./saved_models/client{inc}')
+        torch.save(self.model.state_dict(), f'./saved_models/client{inc}/model+{inc}.pth')
+        acc = self.test_data(test_data, label_mapping_fine_tune, inc=0, status=status)
+
         return self.model.state_dict()
 
     def stage_reduce(self, train_data, criterion, optimizer, inc_i, status, label_mapping_fine_tune):
@@ -99,8 +108,9 @@ class unlearn(basetrain):
             x = x.cuda()
             label = label.view(-1).cuda()
             p = self.model(x)
-            p, num_output = self.bias_forward_new(p, 1, status)
+            #p, num_output = self.bias_forward_new(p, 1, status)
             # a = p[:, :self.seen_cls]
+
             loss = criterion(p[:, :self.seen_cls - len(status[1][2])], label)
             optimizer.zero_grad()
             loss.backward()
@@ -109,7 +119,7 @@ class unlearn(basetrain):
         print("stage fine_tune loss :", np.mean(losses_fine_tune))
 
     def test_data(self, testdata, mappping, inc, status):
-        print("test data number : ", len(testdata))
+        #print("test data number : ", len(testdata))
         self.model.eval()
         correct = 0
         wrong = 0
@@ -122,10 +132,10 @@ class unlearn(basetrain):
             label = label.view(-1).cuda()
             p = self.model(x)
             p, num_output = self.bias_forward_new(p, inc, status)
-            pred = p[:, :self.seen_cls].argmax(dim=-1)
-            pred_leverage = self.inverse_label_mapping(pred, mappping)
-            correct += sum(pred_leverage == label).item()
-            wrong += sum(pred_leverage != label).item()
+            pred = p[:, :self.seen_cls - len(status[1][2])].argmax(dim=-1)
+            #pred_leverage = self.inverse_label_mapping(pred, mappping)
+            correct += sum(pred == label).item()
+            wrong += sum(pred != label).item()
 
             pred_list.append(pred)
             label_list.append(label)
@@ -135,10 +145,9 @@ class unlearn(basetrain):
 
         pred_arr = pred_py.detach().cpu().numpy()
         label_arr = label_py.detach().cpu().numpy()
-        print('predict_label : {}'.format(list(set(pred_arr))))
-        print('true_label : {}'.format(list(set(label_arr))))
+        #print('predict_label : {}'.format(list(set(pred_arr))))
+        #print('true_label : {}'.format(list(set(label_arr))))
         acc = correct / (wrong + correct)
-        print("Test Acc: {}".format(acc * 100))
+        print("Test UL client Acc: {}".format(acc * 100))
         self.model.train()
-        print("---------------------------------------------")
         return acc
