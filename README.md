@@ -12,8 +12,9 @@
 
 ## 🎉 Introduction
 <div align="center">
-  <img src="./images/fedunsilapp.png" width="800px" />
+  <img src="./images/fedunsliapps.png" width="800px" />
 </div>
+
 ## 🌟Datasets
 [njupt2023](https://github.com/NJUPTSecurityAI/total-papers-summary/blob/main/njupt2023.csv),
 [MIRAGE-2019](https://traffic.comics.unina.it/mirage/mirage-2019.html),
