@@ -11,17 +11,18 @@ from tqdm import tqdm
 from dataset import BatchflowData
 from utils.base import basetrain
 from utils.flowfeatures import flowfeatures
-from utils.exemplar import Exemplar
+#from utils.exemplar import Exemplar
 from models.cnnmodel import ResNet
 
 
 class unlearn(basetrain):
 
-    def __init__(self, total_cls, num_list):
+    def __init__(self, total_cls, num_list,dataset_name):
         super().__init__(num_list)
         self.previous_model = None
         self.total_cls = total_cls
         self.seen_cls = total_cls
+        self.dataset_name = dataset_name
         # self.dataset = flowfeatures()
         self.model = ResNet(classes=self.total_cls).cuda()
         #total_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
@@ -45,7 +46,7 @@ class unlearn(basetrain):
         print("stage fine_tune loss :", np.mean(losses_fine_tune))
 
     def train(self, batch_size, epoches, lr, dataset, test, inc, status):
-
+        dataset_name = self.dataset_name
         #total_cls = self.total_cls
         optimizer = optim.SGD(self.model.parameters(), lr=lr, momentum=0.9, weight_decay=2e-4)
         scheduler = StepLR(optimizer, step_size=70, gamma=0.1)
@@ -65,7 +66,7 @@ class unlearn(basetrain):
         test_data = DataLoader(BatchflowData(test_x, test_ys_ft_new),
                                batch_size=batch_size, shuffle=True, drop_last=True)
 
-        state_dict = torch.load(f'./saved_models/client{inc}/model+{inc}.pth')
+        state_dict = torch.load(f'./saved_models/{dataset_name}/client{inc}/model+{inc}.pth')
         self.model.load_state_dict(state_dict)
         # test_x = [x for x, y in zip(test_x, test_y) if y not in status[1][2]]
         # = [y for y in test_y if y not in status[1][2]]
@@ -93,9 +94,9 @@ class unlearn(basetrain):
             param.requires_grad = True
         self.previous_model = deepcopy(self.model)
 
-        if not os.path.exists(f'./saved_models/client{inc}'):
-            os.makedirs(f'./saved_models/client{inc}')
-        torch.save(self.model.state_dict(), f'./saved_models/client{inc}/model+{inc}.pth')
+        if not os.path.exists(f'./saved_models/{dataset_name}/client{inc}'):
+            os.makedirs(f'./saved_models/{dataset_name}/client{inc}')
+        torch.save(self.model.state_dict(), f'./saved_models/{dataset_name}/client{inc}/model+{inc}.pth')
         acc = self.test_data(test_data, label_mapping_fine_tune, inc=0, status=status)
 
         return self.model.state_dict()

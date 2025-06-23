@@ -4,11 +4,11 @@ from torch import nn, optim
 from torch.optim.lr_scheduler import StepLR
 
 from dataset import BatchflowData
-from utils.args import parser_args
+#from utils.args import parser_args
 from utils.datasets import *
 import copy
 import random
-import dill
+# import dill
 import datetime
 from tqdm import tqdm
 import numpy as np
@@ -16,21 +16,22 @@ import math
 import torch
 from torch.utils.data import DataLoader
 import time
-from models.alexnet import AlexNet
-from models.alexnet_ul import AlexNet_UL
+#from models.alexnet import AlexNet
+#from models.alexnet_ul import AlexNet_UL
 from utils.base import basetrain
 from utils.plot_ml import plot_conf
-from utils.trainer_private import TrainerPrivate, TesterPrivate
+#from utils.trainer_private import TrainerPrivate, TesterPrivate
 from utils.flowfeatures import flowfeatures
-from utils.exemplar import Exemplar
+#from utils.exemplar import Exemplar
 from models.cnnmodel import ResNet
 from models.model import BiasLayer
 
 class learn(basetrain):
-    def __init__(self, total_cls, num_list):
+    def __init__(self, total_cls, num_list,dataset_name):
         super().__init__(num_list)
         self.total_cls = total_cls
         self.seen_cls = total_cls
+        self.dataset_name = dataset_name
         #self.dataset = flowfeatures()
         self.model = ResNet(classes=self.total_cls).cuda()
         # print(self.model)
@@ -47,6 +48,7 @@ class learn(basetrain):
         #print("Solver total trainable parameters : ", total_params)
 
     def train(self,batch_size, epoches, lr, dataset,test, inc, status):
+        dataset_name = self.dataset_name
         #total_cls = self.total_cls
         optimizer = optim.SGD(self.model.parameters(), lr=lr, momentum=0.9, weight_decay=2e-4)
         scheduler = StepLR(optimizer, step_size=70, gamma=0.1)
@@ -94,9 +96,9 @@ class learn(basetrain):
         test_acc.append(acc)
         test_accs.append(max(test_acc))
         #print('test_accs:', test_accs)
-        if not os.path.exists(f'./saved_models/client{inc}'):
-            os.makedirs(f'./saved_models/client{inc}')
-        torch.save(self.model.state_dict(), f'./saved_models/client{inc}/model+{inc}.pth')
+        if not os.path.exists(f'./saved_models/{dataset_name}/client{inc}'):
+            os.makedirs(f'./saved_models/{dataset_name}/client{inc}')
+        torch.save(self.model.state_dict(), f'./saved_models/{dataset_name}/client{inc}/model+{inc}.pth')
 
 
         return self.model.state_dict()
