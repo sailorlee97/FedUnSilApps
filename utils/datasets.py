@@ -12,7 +12,7 @@ import torchvision.transforms as transforms
 from torch.utils.data import Dataset,ConcatDataset, DataLoader
 
 #from dataset import UL_CIFAR10,UL_CIFAR100,UL_MNIST
-from utils.sampling import *
+#from utils.sampling import *
 from collections import defaultdict
 from torchvision.datasets.folder import pil_loader, make_dataset, IMG_EXTENSIONS
 

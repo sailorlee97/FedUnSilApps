@@ -11,14 +11,14 @@
 import pickle
 import logging
 from itertools import cycle
-
+from imblearn.over_sampling import SMOTE
 import numpy as np
 import pandas as pd
 from sklearn import preprocessing
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 from collections import defaultdict
-
+from sklearn.utils import shuffle
 import random
 from collections import defaultdict
 
@@ -96,13 +96,24 @@ class DataProcessor:
 
 class flowfeatures():
 
-    def __init__(self, ul_clients_id):
-        self.train_data, self.test_data, self.val_data, self.train_labels, self.test_labels, self.val_labels = self.processdata()
+    def __init__(self, ul_clients_id, data, clients_id=None):
+        if clients_id is None:
+            clients_id = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+        if data == 'njupt':
+            self.train_data, self.test_data, self.val_data, self.train_labels, self.test_labels, self.val_labels = self.processdata()
+        elif data == 'mirage':
+            self.train_data, self.test_data, self.val_data, self.train_labels, self.test_labels, self.val_labels = self.processMIRAGEdata()
+        elif data == 'iscx':
+            self.train_data, self.test_data, self.val_data, self.train_labels, self.test_labels, self.val_labels = self.processISCXdata()
+        elif data == 'cic':
+            self.train_data, self.test_data, self.val_data, self.train_labels, self.test_labels, self.val_labels = self.processCICdata()
+        else:
+            raise RuntimeError('no DATA!!!')
         # self.train_groups, self.val_groups, self.test_groups, self.multi_dict = self.evolveinitialize()
         self.multi_dict = self.evolveinitialize()
         # 持续的次数
         self.batch_num = 2
-        self.clients_id = [0, 1, 2, 3, 4, 6, 7, 8, 9]
+        self.clients_id = clients_id
         self.ul_clients_id = ul_clients_id
         self.total_clients = 10
 
@@ -118,6 +129,113 @@ class flowfeatures():
     def processdata(self):
 
         df = pd.read_csv('./data/newdataframe19.csv')
+        scaler = StandardScaler()
+        numeric_columns = df.columns[:-1]
+        df[numeric_columns] = scaler.fit_transform(df[numeric_columns])
+        # dataframe0 = df.drop(df.columns[0], axis=1)
+        # train, test = train_test_split(df, test_size=0.1)
+        train = df.groupby('appname').head(10000)
+        val = df.groupby('appname').head(1000)
+        test = df.groupby('appname').tail(1000)
+        # train, val = train_test_split(train, test_size=0.1)
+
+        val_labels = val.pop('appname')
+        train_labels = train.pop('appname')
+        # print("The train is :{}".format(list(set(train_labels))))
+        test_labels = test.pop('appname')
+        # print("The test is :{}".format(list(set(test_labels))))
+        return train.values, test.values, val.values, train_labels, test_labels, val_labels
+
+    def smote_data(self,df,num):
+
+        df_features = df.iloc[:, 1:-1]  # 原始数据的特征（去掉第一列和最后一列）
+        df_labels = df.iloc[:, -1]  # 原始数据的标签
+
+        # 合并特征和标签，得到处理后的原始数据集
+        df_processed = pd.concat([df_features, df_labels], axis=1)
+
+        # 初始化 SMOTE 对象，指定每个类别增强到 1000 条
+        smote = SMOTE(sampling_strategy={label: num for label in df_labels.unique()}, random_state=42)
+
+        # 使用 SMOTE 进行增强
+        X_resampled, y_resampled = smote.fit_resample(df_features, df_labels)
+
+        # 将增强后的特征和标签合并为新的 DataFrame
+        df_resampled = pd.DataFrame(X_resampled, columns=df.columns[1:-1])
+        df_resampled['appname'] = y_resampled
+
+        # 将处理后的原始数据和增强后的数据合并
+        df_combined = pd.concat([df_processed, df_resampled], ignore_index=False)
+
+        # 打乱数据集
+        df_combined = shuffle(df_combined, random_state=42).reset_index(drop=True)
+
+        return df_combined
+    
+    def processCICdata(self):
+        df = pd.read_csv('./data/CIC_dataset_2022.csv')
+        keep = [
+        "Camera_simcam",
+        "Camera_homeeyecam",
+        "Camera_arloqcam",
+        "Camera_arlobasecam",
+        "Camera_luohecam",
+        "Camera_amcrest",
+        "Camera_dlinkcam",
+        "Camera_heimvisioncam",
+        "Home Automation_eufyhomebase",
+        "Camera_netatmocam"
+        ]
+        enc=LabelEncoder() 
+        df_filtered = df[df["source"].isin(keep)].reset_index(drop=True)
+        data = enc.fit_transform(df_filtered["source"])
+        df_filtered["source"] = data
+        scaler = StandardScaler()
+        numeric_columns = df_filtered.columns[:-1]
+        df_filtered[numeric_columns] = scaler.fit_transform(df_filtered[numeric_columns])
+        
+        train = df_filtered.groupby('source').head(10000)
+        val = df_filtered.groupby('source').head(1000)
+        test = df_filtered.groupby('source').tail(1000)
+        # train, val = train_test_split(train, test_size=0.1)
+
+        val_labels = val.pop('source')
+        train_labels = train.pop('source')
+        # print("The train is :{}".format(list(set(train_labels))))
+        test_labels = test.pop('source')
+        # print("The test is :{}".format(list(set(test_labels))))
+        return train.values, test.values, val.values, train_labels, test_labels, val_labels
+
+
+
+    def processMIRAGEdata(self):
+
+        df = pd.read_csv('./data/MIRAGE.csv')
+        df_combined = self.smote_data(df,10000)
+        #label_counts = df_combined.groupby('appname').size()
+        #print(label_counts)
+        scaler = StandardScaler()
+        numeric_columns = df_combined.columns[:-1]
+        df_combined[numeric_columns] = scaler.fit_transform(df_combined[numeric_columns])
+        # dataframe0 = df.drop(df.columns[0], axis=1)
+        # train, test = train_test_split(df, test_size=0.1)
+        train = df_combined.groupby('appname').head(10000)
+        val = df_combined.groupby('appname').head(1000)
+        test = df_combined.groupby('appname').tail(1000)
+        # train, val = train_test_split(train, test_size=0.1)
+
+        val_labels = val.pop('appname')
+        train_labels = train.pop('appname')
+        # print("The train is :{}".format(list(set(train_labels))))
+        test_labels = test.pop('appname')
+        # print("The test is :{}".format(list(set(test_labels))))
+        return train.values, test.values, val.values, train_labels, test_labels, val_labels
+
+    def processISCXdata(self):
+
+        df = pd.read_csv('../data/new_ISCX-VPN2016_smote.csv')
+        label_counts = df.groupby('appname').size()
+        print(label_counts)
         scaler = StandardScaler()
         numeric_columns = df.columns[:-1]
         df[numeric_columns] = scaler.fit_transform(df[numeric_columns])
@@ -249,13 +367,13 @@ class flowfeatures():
         status, incremental_elements, Reduce_elements = self.get_status(lista[0], lista[1])
 
         ul_clients_train_data = self.splitclientdata(Reduce_elements, self.train_data, self.train_labels,
-                                                     int((20000 / len(Reduce_elements)) / len(self.ul_clients_id)),
+                                                     int((10000*len(Reduce_elements) / len(Reduce_elements)) / len(self.ul_clients_id)),
                                                      self.ul_clients_id)
         ul_clients_test_data = self.splitclientdata(Reduce_elements, self.test_data, self.test_labels,
-                                                    int((2000 / len(Reduce_elements)) / len(self.ul_clients_id)),
+                                                    int((1000*len(Reduce_elements) / len(Reduce_elements)) / len(self.ul_clients_id)),
                                                     self.ul_clients_id)
         ul_clients_val_data = self.splitclientdata(Reduce_elements, self.val_data, self.val_labels,
-                                                   int((2000 / len(Reduce_elements)) / len(self.ul_clients_id)),
+                                                   int((1000*len(Reduce_elements) / len(Reduce_elements)) / len(self.ul_clients_id)),
                                                    self.ul_clients_id)
 
         return ul_clients_train_data, ul_clients_test_data, ul_clients_val_data
@@ -382,15 +500,15 @@ class flowfeatures():
         # train_ul = [[] for _ in range(len(lista))]
 
         clients_train_data = self.splitclientdata(second_num, self.train_data, self.train_labels,
-                                                  int((80000 / len(second_num)) / (
+                                                  int((10000*len(second_num) / len(second_num)) / (
                                                               self.total_clients - len(self.ul_clients_id))),
                                                   self.clients_id)
         clients_val_data = self.splitclientdata(second_num, self.val_data, self.val_labels,
-                                                int((8000 / len(second_num)) / (
+                                                int((1000*len(second_num) / len(second_num)) / (
                                                             self.total_clients - len(self.ul_clients_id))),
                                                 self.clients_id)
         clients_test_data = self.splitclientdata(second_num, self.test_data, self.test_labels,
-                                                 int((8000 / len(second_num)) / (
+                                                 int((1000*len(second_num) / len(second_num)) / (
                                                              self.total_clients - len(self.ul_clients_id))),
                                                  self.clients_id)
 
@@ -453,16 +571,18 @@ def process_csv():
 
 
 if __name__ == '__main__':
-    ff = flowfeatures([2])
-    ul_clients_train_data, ul_clients_test_data, ul_clients_val_data = ff.getallclass()
-    for client_id, client_data in ul_clients_train_data.items():
-        print(f"客户端 {client_id} 的数据量：{len(client_data)}")
-    # test,label  = zip(*test_ul)
-    for client_id, client_data in ul_clients_train_data.items():
-        label_counts = defaultdict(int)
-        for _, label in client_data:
-            label_counts[label] += 1
-        print(f"客户端 {client_id} 的类别分布：{dict(label_counts)}")
+    ff = flowfeatures([2],'mirage')
+    #ff.processMIRAGEdata()
+
+    # ul_clients_train_data, ul_clients_test_data, ul_clients_val_data = ff.getallclass()
+    # for client_id, client_data in ul_clients_train_data.items():
+    #     print(f"客户端 {client_id} 的数据量：{len(client_data)}")
+    # # test,label  = zip(*test_ul)
+    # for client_id, client_data in ul_clients_train_data.items():
+    #     label_counts = defaultdict(int)
+    #     for _, label in client_data:
+    #         label_counts[label] += 1
+    #     print(f"客户端 {client_id} 的类别分布：{dict(label_counts)}")
     # process_csv()
     # df  = pd.read_csv('./data/dataframe24.csv')
     # class_counts = df['appname'].value_counts()
