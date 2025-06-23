@@ -13,22 +13,26 @@ from models.cnnmodel import ResNet
 from learning import learn
 from unlearning import unlearn
 from utils.base import basetrain
+from utils.utils import CpuGpuMonitor
+from sklearn.metrics import precision_score, recall_score, f1_score, accuracy_score
 
 class fedunsilapps(basetrain):
-    def __init__(self, epochs, num_class, incremental_num_list):
+    def __init__(self, epochs, num_class, incremental_num_list,data):
         super().__init__(incremental_num_list)
         self.epochs = epochs
         # self.total_cls = num_class
         self.idxs_users = 10
         self.ul_clients = [2]
-        self.dataset = flowfeatures(self.ul_clients)
-        self.learn = learn(num_class, [num_class, 0])
-        self.unlearn = unlearn(num_class, [num_class, 0])
+        self.dataset_name = data
+        self.dataset = flowfeatures(self.ul_clients,data=data)
+        self.learn = learn(num_class, [num_class, 0],data)
+        self.unlearn = unlearn(num_class, [num_class, 0],data)
         self.model = ResNet(classes=num_class).cuda()
         self.model_ul = ResNet(classes=num_class).cuda()
         self.w_t = copy.deepcopy(self.model.state_dict())
         self.first_num = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9}
         self.second_num = {2, 3, 4, 5, 6, 7, 8, 9}
+        self.dele_class = [0,1]
         #print(len(self.second_num))
 
     def get_data(self, mode):
@@ -50,6 +54,31 @@ class fedunsilapps(basetrain):
 
         return train, label
 
+    def remove_categories_from_clients(self, clients_data, client_ids, categories):
+        """
+        从指定客户端的数据中删除指定类别的数据。
+
+        参数:
+        - clients_data: 客户端数据字典（格式：{客户端ID: [(数据, 标签), ...] }）
+        - client_ids: 要修改的客户端ID列表
+        - category: 要删除的类别
+
+        返回:
+        - 修改后的客户端数据字典
+        """
+        for client_id in client_ids:
+            if client_id in clients_data:
+                # 过滤掉指定类别的数据
+                clients_data[client_id] = [
+                    (data, label) for data, label in clients_data[client_id] if label not in categories
+                ]
+
+                print(f"已从客户端 {client_id} 中删除类别 {categories} 的数据。")
+            else:
+                print(f"客户端 {client_id} 不存在于数据中。")
+
+        return clients_data
+
     def fedtrain(self, batch_size, lr):
         # 获取数据
 
@@ -58,33 +87,65 @@ class fedunsilapps(basetrain):
         # for epoch in range(self.epochs):
         #local_models_per_epoch = []
         #global_state_dict = copy.deepcopy(self.model.state_dict())
+        dataset_name = self.dataset_name
         local_ws = defaultdict(list)
         clients_train_data, clients_val_data, clients_test_data, multi_dict = self.get_data('all')
-        ul_clients_train_data, ul_clients_test_data, ul_clients_val_data, multi_dict = self.get_data('remain')
-
-        start = time.time()
+        
+        monitor = CpuGpuMonitor()
+        monitor_total = CpuGpuMonitor()
+        monitor_total.start()
+        start_total = time.time()
         for idx in range(self.idxs_users):
             print("---" * 15,f"client:{idx}","---" * 15)
             if (idx in self.ul_clients) == False:
                 # learn
-                start_ul = time.time()
+                
+                # monitor = CpuGpuMonitor()
+                #        start = time.time()
+                monitor.start()
+                start = time.time()
                 local_w = self.learn.train(batch_size, self.epochs, lr, clients_train_data[idx], clients_test_data[idx],
                                            idx, multi_dict)
+                end = time.time()
                 local_ws[idx].extend(copy.deepcopy(local_w))
-                end_ul = time.time()
+                cpu, gpu = monitor.end()
+                training_time = end - start
+                print(f"second model time: {training_time:.2f} s")
+                if not os.path.exists(f'./saved_models/{dataset_name}/client{idx}/'):
+                    os.makedirs(f'./saved_models/{dataset_name}/client{idx}/')
+                with open(f'./saved_models/{dataset_name}/client{idx}/data.txt', 'w') as f:
+                    f.write(f"train time:{training_time:.2f} s   ")
+                    f.write(f"Average CPU usage: {cpu}   ")
+                    f.write(f"Average GPU usage: {gpu}%")
 
             else:
                 # unlearn
                 # self.model_ul.load_state_dict(ul_state_dicts[idx])
                 # ul_model除W2外替换为global model的参数
                 # self.model_ul.load_state_dict(global_state_dict, strict=False)
-                start_ul = time.time()
+                # monitor = CpuGpuMonitor()
+                monitor.start()
+                start = time.time()
                 local_w = self.learn.train(batch_size, self.epochs, lr, clients_train_data[idx], clients_test_data[idx],
                                            idx, multi_dict)
-                local_w_ul = self.unlearn.train(batch_size, self.epochs, lr, ul_clients_train_data[idx], ul_clients_test_data[idx],
+                end = time.time()
+                training_time = end - start
+                clients_ul_train_data = self.remove_categories_from_clients(clients_train_data,self.ul_clients,self.dele_class)
+                clients_ul_test_data = self.remove_categories_from_clients(clients_test_data,self.ul_clients,self.dele_class)
+                start_ul = time.time()
+                local_w_ul = self.unlearn.train(batch_size, self.epochs, lr, clients_ul_train_data[idx], clients_ul_test_data[idx],
                                                 idx, multi_dict)
                 end_ul = time.time()
+                unlearning_time = end_ul - start_ul
+                cpu, gpu = monitor.end()
                 local_ws[idx].extend(copy.deepcopy(local_w_ul))
+                if not os.path.exists(f'./saved_models/{dataset_name}/client{idx}/'):
+                    os.makedirs(f'./saved_models/{dataset_name}/client{idx}/')
+                with open(f'./saved_models/{dataset_name}/client{idx}/data.txt', 'w') as f:
+                    f.write(f"unlearning time: {unlearning_time:.2f} s   ")
+                    f.write(f"train time: {training_time:.2f} s   ")
+                    f.write(f"Average CPU usage: {cpu}  ")
+                    f.write(f"Average GPU usage: {gpu}%")
 
         #client_weights = []
         #for i in range(self.idxs_users):
@@ -92,15 +153,28 @@ class fedunsilapps(basetrain):
 
         #print(local_ws)
         #w_avg1, w_avg2 = self.fed_avg_features_fc(local_ws, client_weights, 1, self.ul_clients)
-        aggregator = FedAggregator(model_path='./saved_models/', forget_clients=self.ul_clients, feature_key='features', fc_key='fc')
+        fedavg_start_time = time.time()
+        aggregator = FedAggregator(model_path=f'./saved_models/{dataset_name}/', forget_clients=self.ul_clients, feature_key='features', fc_key='fc')
         non_forget_model, forget_model = aggregator.aggregate_models()
-        
-        if not os.path.exists(f'./saved_models/globalModel/'):
-            os.makedirs(f'./saved_models/globalModel/')
-        torch.save(non_forget_model, f'./saved_models/globalModel/non_forget_model.pth')
-        torch.save(forget_model, f'./saved_models/globalModel/forget_model.pth')
+        fedavg_end_time = time.time()
+        fedavg_time = fedavg_end_time - fedavg_start_time
+
+        end_total = time.time()
+        total_time = end_total - start_total
+
+        cpu_total, gpu_total = monitor_total.end()
+       
+        if not os.path.exists(f'./saved_models/{dataset_name}/globalModel/'):
+            os.makedirs(f'./saved_models/{dataset_name}/globalModel/')
+        torch.save(non_forget_model, f'./saved_models/{dataset_name}/globalModel/non_forget_model.pth')
+        torch.save(forget_model, f'./saved_models/{dataset_name}/globalModel/forget_model.pth')
         # 测试 w_avg2 这里的测试需要将遗忘的类别去掉
-        testdata = self.dataset.getgobalclass(self.first_num,self.second_num) 
+        with open(f'./saved_models/{dataset_name}/globalModel/data.txt', 'w') as f:
+                f.write(f"fedavg time: {fedavg_time:.2f}s   ")
+                f.write(f"total time: {total_time:.2f}s   ")
+                f.write(f"Average CPU usage: {cpu_total}  ")
+                f.write(f"Average GPU usage: {gpu_total}%")
+        testdata = self.dataset.getglobalclass(self.first_num,self.second_num) 
         test_x, test_y = zip(*testdata)
         new_labels, label_mapping = self.automate_label_mapping(test_y)
         test_data = DataLoader(BatchflowData(test_x, new_labels),
@@ -192,8 +266,47 @@ class fedunsilapps(basetrain):
 
             self.w_t[k] = w_avg[k]
 
+    def unit_test_globalmodel(self):
+        dataset_name = self.dataset_name
+        state_dict = torch.load(f'./saved_models/{dataset_name}/globalModel/forget_model.pth')
+        self.model.load_state_dict(state_dict)
+
+        testdata = self.dataset.getglobalclass(self.first_num,self.second_num) 
+        test_x, test_y = zip(*testdata)
+        new_labels, label_mapping = self.automate_label_mapping(test_y)
+        testdata = DataLoader(BatchflowData(test_x, new_labels),
+                               batch_size=256, shuffle=True, drop_last=True)
+
+        correct = 0
+        wrong = 0
+        all_preds = []  # 存储所有预测结果
+        all_targets = []  # 存储所有真实标签
+
+        for i, (x, label) in enumerate(testdata):
+            x = x.type(torch.FloatTensor)
+            x = x.cuda()
+            label = label.view(-1).cuda()
+            p = self.model(x)
+            pred = p[:, :len(self.second_num)].argmax(dim=-1)
+            # pred_leverage = self.inverse_label_mapping(pred, label_mapping)
+            correct += sum(pred == label).item()
+            wrong += sum(pred != label).item()
+
+            all_preds.extend(pred.cpu().numpy())
+            all_targets.extend(label.cpu().numpy())
+
+        precision = precision_score(all_targets, all_preds, average='macro')
+        recall = recall_score(all_targets, all_preds, average='macro')
+        f1 = f1_score(all_targets, all_preds, average='macro')
+        accuracy = accuracy_score(all_targets, all_preds)
+
+        print(f"Precision: {precision:.4f}, Recall: {recall:.4f}, F1: {f1:.4f}, Accuracy: {accuracy:.4f}")
+        acc = correct / (wrong + correct)
+        print("Test Ul Acc: {}".format(acc * 100))
+
 
 # uint test
 if __name__ == '__main__':
-    fus = fedunsilapps(50, 10, [10,0])
-    fus.fedtrain(256, 0.01)
+    fus = fedunsilapps(50, 10, [10,0],'mirage')
+    # fus.fedtrain(256, 0.01)
+    fus.unit_test_globalmodel()
