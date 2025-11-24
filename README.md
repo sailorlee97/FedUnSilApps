@@ -1,4 +1,4 @@
-# 🦜 FedUnSilApp: Scalable Federated Machine Unlearning-based Encrypted Network Traﬃc Classification
+# 🦜 FedUnSilApp:  Federated Machine Unlearning for Encrypted Network Traﬃc Classification
 
 <p align="center">
   <a href="#-introduction">🎉Introduction</a> •
